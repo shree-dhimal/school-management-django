@@ -28,6 +28,7 @@ urlpatterns = [
     path('students/',Student_Details.as_view()),
     path('teachers/',Teacher_Details.as_view()),
     path('subjects/',Subject_Details.as_view()),
+    path('dashboard/',DashboardView.as_view()),
 
 
 

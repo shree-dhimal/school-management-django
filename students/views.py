@@ -12,7 +12,10 @@ from .models import *
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate
-
+from rest_framework.parsers import (MultiPartParser,FormParser)
+from django.core.mail import send_mail, BadHeaderError
+from django.conf import settings
+from django.core.mail import EmailMessage
 
 #user Signup
 class UserSignupView(APIView):
@@ -24,16 +27,30 @@ class UserSignupView(APIView):
 
     def post(self, request):
         data = request.data
+        image = request.FILES.get('image')
+        data.update({"profile": image})
+        # print(image)
         try:
             serilizer = User_Signup_serilizer(data=data)
-            print(serilizer.initial_data)
+            # print(serilizer.initial_data)
             if serilizer.is_valid():
                 if data['password']:
-                    print("I am HEre")
+                    # print("I am HEre")
                     user = serilizer.save()
                     user.set_password(data['password'])
                     user.save()
-                    print("This is the user that is saved",user)
+                    subject ="Sucessfully Registered"
+                    message =" Thank you for joining us"
+                    to_email = request.data['email']
+                    l = []
+                    l.append(to_email)
+                    print(l)
+                    try:
+                        send_email(subject,message,l)
+                    except Exception as e:
+                        print(e)
+                        
+                    # print("This is the user that is saved",user)
                     # print(serilizer.data)
                     return Response({"message": serilizer.data},status.HTTP_200_OK)
                 else:
@@ -43,7 +60,8 @@ class UserSignupView(APIView):
                 return Response({"message": serilizer.errors},status.HTTP_500_INTERNAL_SERVER_ERROR)
         except Exception as e:
             return Response({"message":str(e)},status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+
+
 
 class Student_Details(APIView):
     permission_classes = (IsAuthenticated,)
@@ -75,17 +93,16 @@ class Student_Details(APIView):
         data = request.data
         user_id = request.user.id
         print(user_id)
-        student = Student.objects.filter(user_id=user_id, is_deleted=False)
+        student = Student.objects.filter(user_id=user_id, is_deleted=False).last()
         user_type = request.user.user_type
         data.update({"user": user_id})
-        serilizer = PostStudentSerilizer(data=data)
-
-        print("This is what student returns:",student.last())
+        print("This is what student returns:",student)
         # print(user_type)
-        print(serilizer.initial_data)
+        # print(serilizer.initial_data)
         # print("This is the data that is got from the login user ",user_id)
         if user_type == "Student":
-            if student.last() is None:
+            if student is None:
+                serilizer = PostStudentSerilizer(data=data)
                 if serilizer.is_valid():
                     # print("ima herere")
                     serilizer.save()
@@ -94,11 +111,43 @@ class Student_Details(APIView):
                     return Response(message,status.HTTP_201_CREATED)
                 else:
                     return Response(serilizer.errors,status.HTTP_400_BAD_REQUEST)
-            message= {"Message":"The Logged in user has data already"}
-            return Response(message,status.HTTP_400_BAD_REQUEST) 
+            else:
+
+                message= {"Message":"The Logged in user has data already"}
+                return Response(message,status.HTTP_400_BAD_REQUEST) 
         else:
             message= {"Message":"The Logged in user is not Student"}
             return Response(message,status.HTTP_400_BAD_REQUEST)
+        
+        
+    def put(self, request):
+        data = request.data
+        user_id = request.user.id
+        print(user_id)
+        student = Student.objects.filter(user_id=user_id, is_deleted=False).last()
+        user_type = request.user.user_type
+        data.update({"user": user_id})
+        print("This is what student returns:",student)
+        # print(user_type)
+        # print(serilizer.initial_data)
+        # print("This is the data that is got from the login user ",user_id)
+        if user_type == "Student":
+            if student is not None:
+                serilizer = PostStudentSerilizer(instance=student,data=data)
+                if serilizer.is_valid():
+                    # print("ima herere")
+                    serilizer.save()
+                    # message= {"Message":"Im here"}
+                    message= {"Data":serilizer.data,"Message":"Data Updated Sucessfull"}
+                    return Response(message,status.HTTP_201_CREATED)
+                else:
+                    return Response(serilizer.errors,status.HTTP_400_BAD_REQUEST)
+            else:
+
+                message= {"Message":"The Logged in user has no data to update"}
+                return Response(message,status.HTTP_400_BAD_REQUEST) 
+        else:
+            message= {"Message":"The Logged in user is not Student"}
     
     def delete(self, request):
         # data = data.is_deleted[True]
@@ -122,47 +171,111 @@ class Student_Details(APIView):
             return Response(res, status.HTTP_400_BAD_REQUEST)
 
         
-
-
-
 class Teacher_Details(APIView):
     permission_classes = (IsAuthenticated,)
     def get(self,request):
         print(request.user)
         user_id = request.user.id
         print(user_id)
-        is_deleted = Teacher.objects.filter(name_id=user_id).values('is_deleted')
+        is_deleted = Teacher.objects.filter(user_id=user_id).values('is_deleted')
         print(is_deleted)
         data = request.user.user_type
-        if data == "Teacher":
-            queryset = Teacher.objects.all().values()
-            # print(queryset)
-            return Response(queryset,status.HTTP_200_OK)
+        teacher = Teacher.objects.filter(user_id=user_id, is_deleted=False).last()
+        # print("This is the student fettched",student.last().is_deleted)
+        if teacher is not None:
+            serilizer = Teacher_Serilizer(teacher)
+            print(serilizer.data)
+            # print(student.is_deleted)
+            if data == "Teacher":
+                return Response(serilizer.data,status.HTTP_200_OK)
+            else:
+                message= {"Message":"You are not Teacher"}
+                return Response(message,status.HTTP_400_BAD_REQUEST)
         else:
-            message= {"Message":"You are not Teacher"}
+            message= {"Message":f"There is no data, please put some Data first {request.user.first_name}"}
             return Response(message,status.HTTP_400_BAD_REQUEST)
-        
+    
     def post(self, request):
         data = request.data
         user_id = request.user.id
         print(user_id)
+        teacher = Teacher.objects.filter(user_id=user_id, is_deleted=False).last()
         user_type = request.user.user_type
         data.update({"user": user_id})
-        serilizer = Teacher_Serilizer(data=data)
-        print(user_type)
-        print(serilizer.initial_data)
-        print("This is the data that is got from the login user ",user_id)
-        if user_type == "Teacher":
-            if serilizer.is_valid():
-                serilizer.save()
-                # message= {"Message":"Im here"}
-                message= {"Data":serilizer.data,"Message":"Sucessfull"}
-                return Response(message,status.HTTP_400_BAD_REQUEST)
-            return Response(serilizer.errors,status.HTTP_400_BAD_REQUEST)
-        else:
-            message= {"Message":"the User is not Teacher"}
-            return Response(message,status.HTTP_400_BAD_REQUEST)
+        serilizer = PostTeacherSerilizer(data=data)
 
+        print("This is what student returns:",teacher)
+        # print(user_type)
+        print(serilizer.initial_data)
+        # print("This is the data that is got from the login user ",user_id)
+        if user_type == "Teacher":
+            if teacher is None:
+                if serilizer.is_valid():
+                    # print("ima herere")
+                    serilizer.save()
+                    # message= {"Message":"Im here"}
+                    message= {"Data":serilizer.data,"Message":"Sucessfull"}
+                    return Response(message,status.HTTP_201_CREATED)
+                else:
+                    return Response(serilizer.errors,status.HTTP_400_BAD_REQUEST)
+            message= {"Message":"The Logged in user has data already"}
+            return Response(message,status.HTTP_400_BAD_REQUEST) 
+        else:
+            message= {"Message":"The Logged in user is not Teacher"}
+            return Response(message,status.HTTP_400_BAD_REQUEST)
+        
+
+    def put(self, request):
+        data = request.data
+        user_id = request.user.id
+        print(user_id)
+        teacher = Teacher.objects.filter(user_id=user_id, is_deleted=False).last()
+        user_type = request.user.user_type
+        data.update({"user": user_id})
+        print("This is what student returns:",teacher)
+        # print(user_type)
+        # print(serilizer.initial_data)
+        # print("This is the data that is got from the login user ",user_id)
+        if user_type == "Teacher":
+            if teacher is not None:
+                serilizer = PostStudentSerilizer(instance=teacher,data=data)
+                if serilizer.is_valid():
+                    # print("ima herere")
+                    serilizer.save()
+                    # message= {"Message":"Im here"}
+                    message= {"Data":serilizer.data,"Message":"Data Updated Sucessfull"}
+                    return Response(message,status.HTTP_201_CREATED)
+                else:
+                    return Response(serilizer.errors,status.HTTP_400_BAD_REQUEST)
+            else:
+
+                message= {"Message":"The Logged in user has no data to update"}
+                return Response(message,status.HTTP_400_BAD_REQUEST) 
+        else:
+            message= {"Message":"The Logged in user is not Teacher"}
+        
+        
+    
+    def delete(self, request):
+        # data = data.is_deleted[True]
+        user_id = request.user.id
+        # print(user_id)
+
+        teacher = Teacher.objects.filter(user_id=user_id, is_deleted=False).last()
+        # print(student.last())
+        if teacher:
+            teacher.is_deleted = True
+            teacher.save()
+
+            res = {"Data":"teacher","Message":"The Item is deleted"}
+            return Response(res, status.HTTP_200_OK)
+            # else:
+            #     res = {"Data":"Error","Message":"The users is already deleted"}
+            #     return Response(res, status.HTTP_200_OK)
+        else:
+            res = {"Data":"Error","Message":"Users Student Details not Foundd to Delete"}
+
+            return Response(res, status.HTTP_400_BAD_REQUEST)
 
 
 class Subject_Details(APIView):
@@ -170,47 +283,177 @@ class Subject_Details(APIView):
     
     def get(self,request):
         print(request.user)
-        data = request.user.user_type
-        if data == "Management" or data == "Student" or data == "Teacher":
-            queryset = Subjects.objects.all().values()
-            message = {"Data":queryset,"Message": "Sucessfull"}
-            # print(queryset)
-            return Response(queryset,status.HTTP_200_OK)
+        user_id = request.user.id
+        print(user_id)
+        user_type = request.user.user_type
+        subject = Subjects.objects.filter(is_deleted=False)
+        # mydata = Member.objects.
+        # print("this is the subject details", )
+        print("This is the student fettched",subject)
+        if subject :
+            print("I am inside here")
+            serilizer = Subjects_Serilizer(subject,many =True)
+            print(serilizer.data)
+            # print(student.is_deleted)
+            if user_type == "Management" or user_type == "Teacher" or user_type == "Student":
+                return Response(serilizer.data,status.HTTP_200_OK)
+            else:
+                message= {"Message":"Not Authorized to view"}
+                return Response(message,status.HTTP_400_BAD_REQUEST)
         else:
-            message= {"Message":"You dont have permission to views the subjects"}
+            message= {"Message":f"There is no data in the Subjects {request.user.first_name}"}
             return Response(message,status.HTTP_400_BAD_REQUEST)
         
     def post(self, request):
         data = request.data
-        
-        # user_id = request.user.id
-        # print(user_id)
+        user_id = request.user.id
+        print(user_id)
+        subject_name = Subjects.objects.filter(name=data['name'], is_deleted = False).last()
+        faculty = Subjects.objects.filter(faculty=data['faculty']).last()
         user_type = request.user.user_type
         # data.update({"user": user_id})
-        serilizer = Subjects_Serilizer(data=data)
+        serilizer = PostSubjectsSerilizer(data=data)
+
+        print("This is what student returns:",subject_name)
+        # print(user_type)
+        print(serilizer.initial_data)
+        # print("This is the data that is got from the login user ",user_id)
+        if user_type == "Management":
+            if subject_name is None:
+                if serilizer.is_valid():
+                    # print("ima herere")
+                    serilizer.save()
+                    # message= {"Message":"Im here"}
+                    message= {"Data":serilizer.data,"Message":"Sucessfull Added the Subjects"}
+                    return Response(message,status.HTTP_201_CREATED)
+                else:
+                    return Response(serilizer.errors,status.HTTP_400_BAD_REQUEST)
+            else:
+                message= {"Data":"Error","Message":"Subjects ALready Exist"}
+                return Response(message,status.HTTP_400_BAD_REQUEST)
+
+
+        else:
+            message= {"Message":"The Logged in user is not Managment"}
+            return Response(message,status.HTTP_400_BAD_REQUEST)
+        
+    def put(self, request,id):
+        data = request.data
+        # user_id = request.user.id
+        # print(user_id)
+        subject = Subjects.objects.filter(id=id, is_deleted=False).last()
+        user_type = request.user.user_type
+        # data.update({"user": user_id})
+        print("This is what subject returns:",subject)
         # print(user_type)
         # print(serilizer.initial_data)
         # print("This is the data that is got from the login user ",user_id)
         if user_type == "Management":
-            if serilizer.is_valid():
-                serilizer.save()
-                # message= {"Message":"Im here"}
-                message= {"Data":serilizer.data,"Message":"Sucessfull"}
-                return Response(message,status.HTTP_201_CREATED)
-            return Response(serilizer.errors,status.HTTP_400_BAD_REQUEST)
+            if subject is not None:
+                serilizer = PostStudentSerilizer(instance=subject,data=data)
+                if serilizer.is_valid():
+                    # print("ima herere")
+                    serilizer.save()
+                    # message= {"Message":"Im here"}
+                    message= {"Data":serilizer.data,"Message":"Data Updated Sucessfull"}
+                    return Response(message,status.HTTP_201_CREATED)
+                else:
+                    return Response(serilizer.errors,status.HTTP_400_BAD_REQUEST)
+            else:
+
+                message= {"Message":"There is no subject data to update"}
+                return Response(message,status.HTTP_400_BAD_REQUEST) 
         else:
-            message= {"Message":"Logged in user is not Management team"}
-            return Response(message,status.HTTP_400_BAD_REQUEST)
+            message= {"Message":"The Logged in user is not Management"}
+
+    def delete(self, request, id):
+        # data = data.is_deleted[True]
+        # user_id = request.user.id
+        # print(user_id)
+
+        subject = Subjects.objects.filter(id= id,is_deleted=False).last()
+        # print(student.last())
+        if subject:
+            subject.is_deleted = True
+            subject.save()
+
+            res = {"Data":"subject","Message":"The Subject is deleted"}
+            return Response(res, status.HTTP_200_OK)
+            # else:
+            #     res = {"Data":"Error","Message":"The users is already deleted"}
+            #     return Response(res, status.HTTP_200_OK)
+        else:
+            res = {"Data":"Error","Message":"Subject Details not Foundd to Delete"}
+
+            return Response(res, status.HTTP_400_BAD_REQUEST)
 
 
 
+def send_email(subject,message,to_email):
+    print("I am here")
+    print(subject,message,to_email)
+    if subject and message and to_email:
+        print("I am here")
 
+        try:
+            # send(subject, message, to_email):
+            send_mail(subject, message,settings.EMAIL_HOST_USER,to_email)
 
+            print("sucess")
 
+        except BadHeaderError as e:
+            print(e)
+        # return HttpResponseRedirect("/contact/thanks/")
+    else:
+        # In reality we'd use a form class
+        # to get proper validation errors.
+        print("No vaild email")
+        pass
 
+class DashboardView(APIView):
+    permission_classes = (IsAuthenticated,)
+    def get(self,request):
+        print(request.user)
+        user_id = request.user.id
+        user_type = request.user.user_type
+        print(user_id)
 
+        user = User.objects.filter(id=user_id ,is_deleted=False).last()
+        user1 = User.objects.filter(id=user_id ,is_deleted=False).last()
+        print(user1)
+        if user1 is not None:
+            serilizer = DashboardSerilizer(instance=user1)
+            # if serilizer.is_valid():
+            print(serilizer.data)
+    #     # print(student.is_deleted)E
+            print(user)
+            return Response({"ok":serilizer.data},status.HTTP_200_OK)
 
+            #     return Response({"serilizer.data":serilizer.data},status.HTTP_200_OK)
+            # else:
+            #     return Response({"serilizer.data":serilizer.errors},status.HTTP_200_OK)
+        else:
+            return Response({"ERROR":"LOGIN FIRST"},status.HTTP_400_BAD_REQUEST)
+            
+                
 
+        # print("This is the student data",student)
+
+        # data = request.user.user_type
+        # teacher = Teacher.objects.filter(user_id=user_id, is_deleted=False).last()
+        # # print("This is the student fettched",student.last().is_deleted)
+        # if teacher is not None:
+        #     serilizer = Teacher_Serilizer(teacher)
+        #     print(serilizer.data)
+        #     # print(student.is_deleted)
+        #     if data == "Teacher":
+        #         return Response(serilizer.data,status.HTTP_200_OK)
+        #     else:
+        #         message= {"Message":"You are not Teacher"}
+        #         return Response(message,status.HTTP_400_BAD_REQUEST)
+        # else:
+        #     message= {"Message":f"There is no data, please put some Data first {request.user.first_name}"}
+        #     return Response(message,status.HTTP_400_BAD_REQUEST)
 
         # user_type = User.objects.filter()
 
